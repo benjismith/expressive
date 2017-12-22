@@ -1,0 +1,395 @@
+options {
+    STATIC = false;
+    DEBUG_PARSER = false;
+    DEBUG_TOKEN_MANAGER = false;
+    JAVA_UNICODE_ESCAPE = false;
+    UNICODE_INPUT = true;
+    JDK_VERSION = "1.7";
+}
+
+PARSER_BEGIN(ExpressionParser)
+
+package com.cloudability.expressive.parser;
+
+import java.io.BufferedReader;
+import java.io.StringReader;
+import java.util.List;
+import java.util.ArrayList;
+
+import com.cloudability.expressive.ast.*;
+
+import com.google.common.base.Throwables;
+
+@SuppressWarnings("all")
+public class ExpressionParser {
+
+    public ExpressionParser(String text) {
+      this(new BufferedReader(new StringReader(text)));
+    }
+
+    public Expression parse() {
+      Expression expression = null;
+      try {
+        expression = this.Expression();
+      } catch (Throwable t) {
+        Throwables.propagate(t);
+      }
+      return expression;
+    }
+
+    public String unescape(String str) {
+      StringBuilder b = new StringBuilder();
+      for (int i = 0, last = str.length(); i < last; i++) {
+        char c = str.charAt(i);
+        if (c == '\\') {
+          c = str.charAt(++i);
+        }
+        b.append(c);
+      }
+      return b.toString();
+    }
+
+    public String unquote(String str) {
+      StringBuilder b = new StringBuilder();
+      for (int i = 1, last = str.length() - 1; i < last; i++) {
+        char c = str.charAt(i);
+        if (c == '\\') {
+          c = str.charAt(++i);
+        }
+        b.append(c);
+      }
+      return b.toString();
+    }
+
+}
+
+PARSER_END(ExpressionParser)
+
+
+/* ***********************************  LEXICAL GRAMMAR STARTS HERE  *********************************** */
+
+<*> SKIP : {
+  " "
+| "\t"
+| "\n"
+| "\r"
+}
+
+TOKEN :
+{
+    < PLUS    : "+" >
+  | < MINUS   : "-" >
+  | < STAR    : "*" >
+  | < CARAT   : "^" >
+  | < SLASH   : "/" >
+
+  | < LPAREN  : "(" >
+  | < RPAREN  : ")" >
+  | < LBRACK  : "[" >
+  | < RBRACK  : "]" >
+
+  | < GT      : ">" >
+  | < GTE     : ">=" >
+  | < LT      : "<" >
+  | < LTE     : "<=" >
+  | < EQ      : "==" >
+  | < NOT_EQ  : "!=" >
+  | < MATCH   : "~=" >
+  | < IN      : "=[]" >
+  | < NOT_IN  : "![]" >
+
+  | < AND     :  "&&" >
+  | < OR      :  "||" >
+  | < NOT     :  "!" >
+
+  | < COMMA   : "," >
+  | < DOT     : "." >
+
+  | < PI      : "pi" >
+  | < EULER   : "E2" >
+  | < I       : "i" >
+
+  | < NUMBER :
+      (["0"-"9"])+
+      (
+        "."
+        (["0"-"9"])+
+      )?
+      (
+        ["e","E"]
+        (["+","-"])?
+        (["0"-"9"])+
+      )?
+    >
+
+  | < STRING :
+      (
+        "\""
+        (
+          ~["\"","\\"]
+          |
+          (
+            "\\"
+            ["\"","\\"]
+          )
+        )*
+        "\""
+      )|(
+        "'"
+        (
+          ~["'","\\"]
+          |
+          (
+            "\\"
+            ["'","\\"]
+          )
+        )*
+        "'"
+      )
+    >
+
+  | < IDENTIFIER :
+      ["a"-"z","A"-"Z","_"]
+      (["a"-"z","A"-"Z","_","0"-"9"])*
+    >
+}
+
+/* **********************************  SYNTACTIC GRAMMAR STARTS HERE  ********************************** */
+
+
+Expression Expression():
+{
+  Expression e = null;
+}
+{
+  e = OrExpression()
+  <EOF>
+  { return e; }
+}
+
+Expression OrExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = AndExpression()
+  (
+    <OR>
+    { op = Operator.OR; }
+    rhs = AndExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )*
+  { return lhs; }
+}
+
+Expression AndExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = CompareExpression()
+  (
+    <AND>
+    { op = Operator.AND; }
+    rhs = CompareExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )*
+  { return lhs; }
+}
+
+Expression CompareExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = AddExpression()
+  (
+    (
+      <EQ> { op = Operator.EQUALS; }
+      |
+      <NOT_EQ> { op = Operator.NOT_EQUALS; }
+      |
+      <LT> { op = Operator.LT; }
+      |
+      <LTE> { op = Operator.LTE; }
+      |
+      <GT> { op = Operator.GT; }
+      |
+      <GTE> { op = Operator.GTE; }
+      |
+      <MATCH> { op = Operator.MATCH; }
+      |
+      <IN> { op = Operator.IN; }
+      |
+      <NOT_IN> { op = Operator.NOT_IN; }
+    )
+    rhs = AddExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )?
+  { return lhs; }
+}
+
+Expression AddExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = MultExpression()
+  (
+    (
+      <PLUS> { op = Operator.PLUS; }
+      |
+      <MINUS> { op = Operator.MINUS; }
+    )
+    rhs = MultExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )*
+  { return lhs; }
+}
+
+Expression MultExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = PowExpression()
+  (
+    (
+      <STAR> { op = Operator.MULTIPLY; }
+      |
+      <SLASH> { op = Operator.DIVIDE; }
+    )
+    rhs = PowExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )*
+  { return lhs; }
+}
+
+Expression PowExpression():
+{
+  Expression lhs = null;
+  Operator op = null;
+  Expression rhs = null;
+}
+{
+  lhs = UnaryExpression()
+  (
+    <CARAT> { op = Operator.POWER; }
+    rhs = UnaryExpression()
+    { lhs = new BinaryExpression(lhs, op, rhs); }
+  )*
+  { return lhs; }
+}
+
+Expression UnaryExpression():
+{
+  Operator op = null;
+  Expression e = null;
+}
+{
+  (
+    <PLUS> { op = Operator.PLUS; }
+    |
+    <MINUS> { op = Operator.MINUS; }
+    |
+    <NOT> { op = Operator.NOT; }
+  )?
+  e = PrimeExpression()
+  { return op == null ? e : new UnaryExpression(e, op); }
+}
+
+Expression PrimeExpression():
+{
+  Expression e = null;
+}
+{
+  (
+    e = LiteralExpression()
+  | e = NamedExpression()
+  | e = ParenExpression()
+  )
+  { return e; }
+}
+
+Expression LiteralExpression():
+{
+  Token t = null;
+}
+{
+  (
+    t = <NUMBER>
+    { return new NumberLiteral(Double.parseDouble(t.image)); }
+    |
+    t = <PI>
+    { return new NumberLiteral(NumberLiteral.PI_VALUE); }
+    |
+    t = <EULER>
+    { return new NumberLiteral(NumberLiteral.EULER_VALUE); }
+    |
+    t = <I>
+    { return new NumberLiteral(NumberLiteral.I_VALUE); }
+    |
+    t = <STRING>
+    { return new StringLiteral(unescape(unquote(t.image))); }
+  )
+}
+
+Expression NamedExpression():
+{
+  Expression e = null;
+  List<Expression> args = null;
+  Token identifier = null;
+  Token columnName = null;
+}
+{
+  identifier = <IDENTIFIER>
+  (
+    (
+      <LPAREN>
+      { args = new ArrayList<Expression>(); }
+      (
+        e = Expression()
+        { args.add(e); }
+        (
+          <COMMA>
+          e = Expression()
+          { args.add(e); }
+        )*
+      )?
+       <RPAREN>
+      { return new FunctionExpression(identifier.image, args); }
+    )|(
+      <LBRACK>
+      columnName = <STRING>
+      <RBRACK>
+      { return new ColumnRefExpression(identifier.image, columnName.image); }
+    )
+  )?
+  { return new VariableExpression(identifier.image); }
+}
+
+Expression ParenExpression():
+{
+  Expression e = null;
+}
+{
+  <LPAREN>
+  e = OrExpression()
+  <RPAREN>
+  { return e; }
+}
+
+
+
+
+
